@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """rt2to3: Python runtime 2to3 conversion (for developers)
 
 Launch IPython from within the source directory::
@@ -15,6 +16,17 @@ Or specify a module to load::
 
   $ PYTHONPATH=$IPY python3 -m rt2to3 -d $IPY \
     -m IPython.frontend.terminal.ipapp
+
+For permanent behavior, add to your ``sitecustomize.py``::
+
+    import sys
+    from rt2to3 import Runtime2to3Installer
+
+    IPY = '/home/user/projects/ipython'
+    nofix = ['apply', 'except', 'has_key', 'next', 'repr', 'tuple_params']
+
+    sys.path.insert(0, IPY)
+    Runtime2to3Installer(nofix=nofix).install(IPY)
 
 Custom usage::
 
@@ -43,7 +55,7 @@ Custom usage::
 #  the file COPYING, distributed as part of this software.
 #-----------------------------------------------------------------------------
 
-__version__ = '0.1'
+__version__ = '0.2'
 
 #-----------------------------------------------------------------------------
 # Imports
@@ -51,10 +63,16 @@ __version__ = '0.1'
 
 import collections
 import errno
+import getopt
+import hashlib
 import logging
 import os
+import runpy
 import sys
+import textwrap
 import warnings
+
+from lib2to3 import refactor
 
 try:
     from importlib.machinery import FileFinder, SourceFileLoader, \
@@ -79,6 +97,7 @@ FileFinderDetail.supports_packages = True
 __all__ = [
     'Runtime2to3FileFinder',
     'Runtime2to3SourceFileLoader',
+    'Runtime2to3Installer',
     ]
 
 class Runtime2to3FileFinder(FileFinder):
@@ -218,90 +237,187 @@ class Runtime2to3SourceFileLoader(SourceFileLoader):
 
 
 #-----------------------------------------------------------------------------
-# Run
+# Installer
 #-----------------------------------------------------------------------------
 
-if __name__ == "__main__":
+class Runtime2to3Installer:
+    """Install a runtime 2to3 importer.
 
-    import argparse
-    import hashlib
-    import runpy
-    import textwrap
-    from lib2to3 import refactor
+    Usage
+    -----
+    >>> installer = Runtime2to3Installer()
+    >>> installer.install(directory)
+    """
 
-    parser = argparse.ArgumentParser(description="Runtime 2to3 conversion")
-    parser.add_argument("-f", "--fix", action="append", default=[],
-                        help="Each FIX specifies a transformation; default: all")
-    parser.add_argument("-x", "--nofix", action="append", default=[],
-                        help="Prevent a transformation from being run")
-    parser.add_argument("-d", dest='directory', action="append", default=[],
-                        help="Directory to apply transformations; default: current")
+    def __init__(self, fix=None, nofix=None):
+        fixer_names = self.create_fixer_names(fix or [], nofix or [])
+        self.refactoring_tool = self.create_refactoring_tool(fixer_names)
+        self.tag = self.create_tag(fixer_names)
 
-    group = parser.add_argument_group('code to run')
-    subgroup = group.add_mutually_exclusive_group(required=True)
-    subgroup.add_argument('-m', dest='module', metavar='MOD',
-                       help="run library module as a script")
-    subgroup.add_argument('file', nargs='?', metavar='FILE',
-                       help="program read from script file")
+    @staticmethod
+    def create_fixer_names(fixes, nofixes):
+        """Build a set of fixer names."""
+        # Taken from lib2to3.main:
+        fixer_pkg = 'lib2to3.fixes'
+        avail_fixes = set(refactor.get_fixers_from_package(fixer_pkg))
+        unwanted_fixes = set(fixer_pkg + ".fix_" + fix for fix in nofixes)
+        explicit = set()
+        if fixes:
+            all_present = False
+            for fix in fixes:
+                if fix == "all":
+                    all_present = True
+                else:
+                    explicit.add(fixer_pkg + ".fix_" + fix)
+            requested = avail_fixes.union(explicit) if all_present else explicit
+        else:
+            requested = avail_fixes.union(explicit)
+        fixer_names = requested.difference(unwanted_fixes)
+        return fixer_names
 
-    group.add_argument("args", nargs=argparse.REMAINDER, metavar="...", help=
-                       "additional arguments for the script or module; separate with "
-                       "-- to prevent accidentally parsing these options")
+    def create_refactoring_tool(self, fixer_names):
+        """Create the refactoring tool from a list of fixer names."""
+        return refactor.RefactoringTool(fixer_names)
 
-    options = parser.parse_args()
+    def create_tag(self, fixer_names):
+        """Create a short tag for caching the 2to3 converted files."""
+        key = tuple(sorted(fixer_names))
+        return 'rt2to3-' + hashlib.md5(str(key).encode('utf-8')).hexdigest()[:6]
 
-    # Build list of fixers.
-    # Taken from lib2to3.main:
-    fixer_pkg = 'lib2to3.fixes'
-    avail_fixes = set(refactor.get_fixers_from_package(fixer_pkg))
-    unwanted_fixes = set(fixer_pkg + ".fix_" + fix for fix in options.nofix)
-    explicit = set()
-    if options.fix:
-        all_present = False
-        for fix in options.fix:
-            if fix == "all":
-                all_present = True
+    def install(self, directories):
+        """Install the path hook for the directory or list of directories."""
+        if isinstance(directories, str):
+            directories = [directories]
+
+        def predicate(path):
+            """Match any directory or subdirectory of `directories`."""
+            p = os.path.abspath(path)
+            return any(p == d or p.startswith(d + os.path.sep)
+                       for d in directories)
+
+        # Add our custom path hook to the list of system imports.
+        path_hook = Runtime2to3FileFinder.predicated_path_hook(
+            predicate, self.refactoring_tool, self.tag)
+        sys.path_hooks.insert(0, path_hook)
+        sys.path_importer_cache.clear()
+
+
+#-----------------------------------------------------------------------------
+# Command Line Usage
+#-----------------------------------------------------------------------------
+
+def main(args=None):
+
+    usage = textwrap.dedent("""
+        usage: %(prog)s [-h] [-f FIX] [-x NOFIX] [-d DIRECTORY] (-m MOD | FILE) ...
+
+        Runtime 2to3 conversion
+
+        optional arguments:
+          -h, --help            show this help message and exit
+          -f FIX, --fix FIX     Each FIX specifies a transformation; default: all
+          -x NOFIX, --nofix NOFIX
+                                Prevent a transformation from being run
+          -d DIRECTORY          Directory to apply transformations; default: current
+
+        code to run:
+          -m MOD                run library module as a script
+          FILE                  program read from script file
+          ...                   additional arguments for the script or module
+        """ % {'prog': sys.argv[0]})
+
+    class Namespace:
+        """Hold the parsed arguments."""
+        pass
+
+    def parse(args=None):
+        """Parse arguments."""
+        if args is None:
+            args = sys.argv
+
+        # Stop parsing after the first '-c' or '-m', if given.
+        args, postargs = args[1:], []
+        index = lambda L, value: L.index(value) if (value in L) else len(L)
+        idx = min(index(args, '-m'), index(args, '-c'))
+        args, postargs = args[:idx], args[idx:]
+        opts, args = getopt.getopt(args, "f:x:d:h",
+                                   ["fix=", "nofix=", "directory=", "help"])
+        args.extend(postargs)
+
+        ctx = Namespace()
+
+        # Parse flags
+        ctx.fix = []
+        ctx.nofix = []
+        ctx.directories = []
+
+        for o, a in opts:
+            if o in ('-h', '--help'):
+                print(usage, file=sys.stderr)
+                sys.exit()
+            elif o in ('-f', '--fix'):
+                ctx.fix.append(a)
+            elif o in ('-x', '--nofix'):
+                ctx.nofix.append(a)
+            elif o in ('-d', '--directory'):
+                ctx.directories.append(os.path.abspath(a))
             else:
-                explicit.add(fixer_pkg + ".fix_" + fix)
-        requested = avail_fixes.union(explicit) if all_present else explicit
+                assert False, "unhandled option"
+
+        if not ctx.directories:
+            ctx.directories.append(os.path.abspath('.'))
+
+        # Parse arguments
+        ctx.code = None
+        ctx.module = None
+        ctx.filename = None
+
+        if not args:
+            raise ValueError("code, module, or file must be given.")
+
+        if args[0] == '-c':
+            if len(args) < 2:
+                raise ValueError("Argument expected for the -c option.")
+            ctx.code = args[1]
+            ctx.argv = ['-c'] + args[2:]
+
+        elif args[0] == '-m':
+            if len(args) < 2:
+                raise ValueError("Argument expected for the -m option.")
+            ctx.module = args[1]
+            ctx.argv = args[1:]
+
+        else:
+            ctx.filename = args[0]
+            ctx.argv = args
+
+        return ctx
+
+    # Parse arguments
+    try:
+        ctx = parse(args)
+    except Exception as e:
+        print("Error: %s" % e, file=sys.stderr)
+        sys.exit(2)
+
+    # Install the runtime 2to3 path hook.
+    installer = Runtime2to3Installer(ctx.fix, ctx.nofix)
+    installer.install(ctx.directories)
+
+    # Run the specified code
+    sys.argv = ctx.argv
+    if ctx.code:
+        code = compile(ctx.code, '-c', 'exec')
+        ns = dict(__name__ = '__main__',
+                  __doc__ = None,
+                  __package__ = None)
+        exec(code, ns)
+
+    elif ctx.module:
+        runpy.run_module(ctx.module, run_name="__main__")
+
     else:
-        requested = avail_fixes.union(explicit)
-    fixer_names = requested.difference(unwanted_fixes)
+        runpy.run_path(ctx.filename, run_name="__main__")
 
-    # Build the refactoring tool.
-    refactoring_tool = refactor.RefactoringTool(fixer_names)
-
-    # For cache purposes, develop a tag which is unique to the
-    # refactoring tool.
-    key = tuple(sorted(fixer_names))
-    tag = 'rt2to3-' + hashlib.md5(str(key).encode('utf-8')).hexdigest()[:6]
-
-    # Build a function which matches the target directories.
-    directories = []
-    for d in options.directory or ['.']:
-        directories.append(os.path.abspath(d))
-
-    def predicate(path):
-        """Match any directory or subdirectory of `directories`."""
-        p = os.path.abspath(path)
-        return any(p == d or p.startswith(d + os.path.sep)
-                   for d in directories)
-
-    # Add our custom path hook to the list of system imports.
-    path_hook = Runtime2to3FileFinder.predicated_path_hook(
-        predicate, refactoring_tool, tag)
-    sys.path_hooks.insert(0, path_hook)
-    sys.path_importer_cache.clear()
-
-    if options.module:
-        mod_name = options.module
-        sys.argv = [mod_name] + options.args
-        runpy.run_module(mod_name, run_name="__main__")
-
-    elif options.file:
-        file_name = options.file
-        sys.argv = [file_name] + options.args
-        runpy.run_path(file_name, run_name="__main__")
-
-    else:
-        raise NotImplementedError("Unknown run option.")
+if __name__ == "__main__":
+    main()

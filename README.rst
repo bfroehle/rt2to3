@@ -44,6 +44,18 @@ Or specify a module to load::
   $ PYTHONPATH=$IPY python3 -m rt2to3 -d $IPY \
     -m IPython.frontend.terminal.ipapp
 
+For permanent behavior, add to your ``sitecustomize.py``::
+
+    import sys
+    from rt2to3 import Runtime2to3Installer
+
+    IPY = '/home/user/projects/ipython'
+    nofix = ['apply', 'except', 'has_key', 'next', 'repr', 'tuple_params']
+
+    sys.path.insert(0, IPY)
+    Runtime2to3Installer(nofix=nofix).install(IPY)
+
+
 Caveats
 =======
 

@@ -1,7 +1,7 @@
 from distutils.core import setup
 
 setup(name='rt2to3',
-      version='0.1',
+      version='0.2',
       description='Runtime 2to3 conversion',
       author='Bradley Froehle',
       author_email='brad.froehle@gmail.com',
