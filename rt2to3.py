@@ -227,12 +227,19 @@ class Runtime2to3SourceFileLoader(SourceFileLoader):
         else:
             return super().get_data(path)
 
+    def get_code(self, fullname):
+        """Concrete implementation of InspectLoader.get_code."""
+        source_path = self.get_filename(fullname)
+        source_bytes = self.get_data(source_path)
+        return compile(source_bytes, source_path, 'exec',
+                       dont_inherit=True)
+
     def load_module(self, fullname):
         """Load the module."""
         self.logger.debug('Loading module: %s' % fullname)
         path = self.get_filename(fullname)
         module = self._load_module(fullname, sourceless=True)
-        module.__file__ = self._2to3_cache_path(path)
+        module.__rt2to3__ = self._2to3_cache_path(path)
         return module
 
 

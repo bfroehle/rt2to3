@@ -62,4 +62,15 @@ Caveats
 This module only affects *imported* code. Code which is run as a
 script or using `execfile` is not processed by `2to3`. In addition,
 any spawned Python processes (e.g., via `subprocess.Popen`) will *not*
-inherit the runtime `2to3` configuration.
+inherit the runtime `2to3` configuration.  You can work around this
+by using the ``sitecustomize.py`` file as suggested above.
+
+Byte code is not cached for modules loaded using the runtime 2to3
+importer. This is because the default cache tag does not know about
+the specific 2to3 settings (i.e., which fixers were or were not used),
+and so we cannot properly detect stale ``.pyc`` files.
+
+Source inspection tools might not properly detect the 2to3 converted
+source, if they try to open ``module.__file__`` directly, rather than
+use ``module.__loader__.get_data(module.__name__)``. The path to the
+2to3 converted source is available in ``module.__rt2to3__``.
