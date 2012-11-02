@@ -28,6 +28,9 @@ Requirements
 Examples
 ========
 
+IPython
+-------
+
 Launch IPython from within the source directory::
 
   $ git clone https://github.com/ipython/ipython.git
@@ -41,8 +44,7 @@ Launch IPython from another directory::
 
 Or specify a module to load::
 
-  $ PYTHONPATH=$IPY python3 -m rt2to3 -d $IPY \
-    -m IPython.frontend.terminal.ipapp
+  $ PYTHONPATH=$IPY python3 -m rt2to3 -d $IPY -m IPython
 
 For permanent behavior, add to your ``sitecustomize.py``::
 
