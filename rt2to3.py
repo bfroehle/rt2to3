@@ -69,7 +69,6 @@ import logging
 import os
 import runpy
 import sys
-import textwrap
 import warnings
 
 from lib2to3 import refactor
@@ -315,23 +314,23 @@ class Runtime2to3Installer:
 
 def main(args=None):
 
-    usage = textwrap.dedent("""
-        usage: %(prog)s [-h] [-f FIX] [-x NOFIX] [-d DIRECTORY] (-m MOD | FILE) ...
+    usage = """
+usage: %(prog)s [-h] [-f FIX] [-x NOFIX] [-d DIRECTORY] (-m MOD | FILE) ...
 
-        Runtime 2to3 conversion
+Runtime 2to3 conversion
 
-        optional arguments:
-          -h, --help            show this help message and exit
-          -f FIX, --fix FIX     Each FIX specifies a transformation; default: all
-          -x NOFIX, --nofix NOFIX
-                                Prevent a transformation from being run
-          -d DIRECTORY          Directory to apply transformations; default: current
+optional arguments:
+  -h, --help            show this help message and exit
+  -f FIX, --fix FIX     Each FIX specifies a transformation; default: all
+  -x NOFIX, --nofix NOFIX
+                        Prevent a transformation from being run
+  -d DIRECTORY          Directory to apply transformations; default: current
 
-        code to run:
-          -m MOD                run library module as a script
-          FILE                  program read from script file
-          ...                   additional arguments for the script or module
-        """ % {'prog': sys.argv[0]})
+code to run:
+  -m MOD                run library module as a script
+  FILE                  program read from script file
+  ...                   additional arguments for the script or module
+""".strip() % {'prog': sys.argv[0]}
 
     class Namespace:
         """Hold the parsed arguments."""
