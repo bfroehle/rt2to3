@@ -55,6 +55,11 @@ For permanent behavior, add to your ``sitecustomize.py``::
     sys.path.insert(0, IPY)
     Runtime2to3Installer(nofix=nofix).install(IPY)
 
+Or use a ``*.pth`` file::
+
+    /home/user/projects/ipython
+    import rt2to3; rt2to3.Runtime2to3Installer(nofix=['apply', 'except', 'has_key', 'next', 'repr', 'tuple_params']).install('/home/user/projects/ipython')
+
 
 Caveats
 =======
